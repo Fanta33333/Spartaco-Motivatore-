@@ -10,14 +10,14 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ASSISTANT_ID = os.getenv("ASSISTANT_ID") # Carichiamo l'ID dell'assistente
+ASSISTANT_ID = os.getenv("ASSISTANT_ID")
 
 if not all([TELEGRAM_TOKEN, OPENAI_API_KEY, ASSISTANT_ID]):
     raise ValueError("Errore: mancano uno o più token/ID nel file .env (TELEGRAM_TOKEN, OPENAI_API_KEY, ASSISTANT_ID)")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Dizionario per memorizzare le conversazioni (thread) per ogni utente Telegram
+# Dizionario per memorizzare le conversazioni (thread) per ogni utente
 user_threads = {}
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -28,7 +28,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     chat_id = update.effective_chat.id
     
-    # Quando un utente inizia, creiamo un nuovo thread di conversazione per lui
     try:
         thread = client.beta.threads.create()
         user_threads[chat_id] = thread.id
@@ -40,14 +39,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.error(f"Errore nella creazione del thread per {chat_id}: {e}")
         await update.message.reply_text("Scusa, non riesco a inizializzare la nostra conversazione. Riprova più tardi.")
 
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     user_text = update.message.text
     
-    # Se per qualche motivo l'utente non ha un thread, lo creiamo (o lo invitiamo a fare /start)
     if chat_id not in user_threads:
-        await update.message.reply_text("Per favore, avvia prima la conversazione con /start.")
+        # Se l'utente non ha un thread, lo invita a usare /start
+        await start(update, context)
         return
 
     thread_id = user_threads[chat_id]
@@ -70,10 +68,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         # 3. Aspetta che l'assistente abbia finito di elaborare la risposta
         while run.status != "completed":
-            time.sleep(0.5) # Attendi mezzo secondo prima di ricontrollare
+            time.sleep(0.5)
             run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
             if run.status == "failed":
-                raise Exception("L'esecuzione dell'assistente è fallita.")
+                raise Exception(f"L'esecuzione dell'assistente è fallita: {run.last_error.message}")
 
         # 4. Recupera tutti i messaggi del thread
         messages = client.beta.threads.messages.list(thread_id=thread_id)
@@ -86,14 +84,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logging.error(f"Errore durante la gestione del messaggio per il thread {thread_id}: {e}")
         await update.message.reply_text("Ops, qualcosa è andato storto mentre elaboravo la tua richiesta.")
 
-# --- Funzione Principale ---
+# --- Funzione Principale (con la modifica per prevenire il 'Conflict') ---
 
 def main() -> None:
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    """Avvia il bot e lo mette in ascolto."""
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .get_updates(drop_pending_updates=True)  # Pulisce la coda di aggiornamenti all'avvio
+        .build()
+    )
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logging.info("Bot basato su Assistant avviato con successo! In ascolto...")
+    logging.info("Bot avviato con successo! In ascolto...")
     application.run_polling()
 
 if __name__ == '__main__':
