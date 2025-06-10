@@ -44,7 +44,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_text = update.message.text
     
     if chat_id not in user_threads:
-        # Se l'utente non ha un thread, lo invita a usare /start
         await start(update, context)
         return
 
@@ -53,30 +52,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await context.bot.send_chat_action(chat_id=chat_id, action='typing')
 
     try:
-        # 1. Aggiungi il messaggio dell'utente al thread
         client.beta.threads.messages.create(
             thread_id=thread_id,
             role="user",
             content=user_text
         )
 
-        # 2. Esegui l'assistente su quel thread
         run = client.beta.threads.runs.create(
             thread_id=thread_id,
             assistant_id=ASSISTANT_ID
         )
 
-        # 3. Aspetta che l'assistente abbia finito di elaborare la risposta
         while run.status != "completed":
             time.sleep(0.5)
             run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
             if run.status == "failed":
                 raise Exception(f"L'esecuzione dell'assistente è fallita: {run.last_error.message}")
 
-        # 4. Recupera tutti i messaggi del thread
         messages = client.beta.threads.messages.list(thread_id=thread_id)
-        
-        # 5. Estrai l'ultima risposta dell'assistente e inviala
         assistant_response = messages.data[0].content[0].text.value
         await update.message.reply_text(assistant_response)
 
@@ -84,31 +77,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logging.error(f"Errore durante la gestione del messaggio per il thread {thread_id}: {e}")
         await update.message.reply_text("Ops, qualcosa è andato storto mentre elaboravo la tua richiesta.")
 
-# --- Funzione Principale (con la sintassi corretta per pulire i vecchi messaggi) ---
+# --- Funzione Principale (con la sintassi corretta per la v20.7) ---
 
 def main() -> None:
     """Avvia il bot e lo mette in ascolto."""
     
-    # Crea un'istanza del builder
-    builder = Application.builder().token(TELEGRAM_TOKEN)
-    
-    # Imposta la funzione per pulire i vecchi aggiornamenti prima di iniziare
-    async def post_init(application: Application) -> None:
-        await application.bot.get_updates(drop_pending_updates=True)
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    builder.post_init(post_init)
-    
-    # Costruisci l'applicazione
-    application = builder.build()
-
-    # Aggiungi i gestori dei comandi e dei messaggi
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logging.info("Bot avviato con successo! In ascolto...")
     
-    # Avvia il bot
-    application.run_polling()
+    # Avvia il bot, pulendo i vecchi messaggi qui
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
     main()
