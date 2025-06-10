@@ -84,21 +84,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logging.error(f"Errore durante la gestione del messaggio per il thread {thread_id}: {e}")
         await update.message.reply_text("Ops, qualcosa è andato storto mentre elaboravo la tua richiesta.")
 
-# --- Funzione Principale (con la modifica per prevenire il 'Conflict') ---
+# --- Funzione Principale (con la sintassi corretta per pulire i vecchi messaggi) ---
 
 def main() -> None:
     """Avvia il bot e lo mette in ascolto."""
-    application = (
-        Application.builder()
-        .token(TELEGRAM_TOKEN)
-        .get_updates(drop_pending_updates=True)  # Pulisce la coda di aggiornamenti all'avvio
-        .build()
-    )
+    
+    # Crea un'istanza del builder
+    builder = Application.builder().token(TELEGRAM_TOKEN)
+    
+    # Imposta la funzione per pulire i vecchi aggiornamenti prima di iniziare
+    async def post_init(application: Application) -> None:
+        await application.bot.get_updates(drop_pending_updates=True)
 
+    builder.post_init(post_init)
+    
+    # Costruisci l'applicazione
+    application = builder.build()
+
+    # Aggiungi i gestori dei comandi e dei messaggi
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logging.info("Bot avviato con successo! In ascolto...")
+    
+    # Avvia il bot
     application.run_polling()
 
 if __name__ == '__main__':
